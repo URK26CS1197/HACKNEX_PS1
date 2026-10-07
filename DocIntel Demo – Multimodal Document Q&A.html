@@ -1,0 +1,144 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
+<title>DocIntel Demo – Multimodal Document Q&amp;A</title>
+<style>
+:root{--bg:#f6f7f9;--card:#fff;--tx:#1b1f27;--mut:#667085;--bd:#e3e6ec;--ac:#3b5bdb;--acs:#e8edff;--ok:#1a7f4b;--bad:#b42318;box-sizing:border-box;padding-top:env(safe-area-inset-top,0px);padding-bottom:env(safe-area-inset-bottom,0px)}
+@media(prefers-color-scheme:dark){:root:not([data-theme=light]){--bg:#12141a;--card:#1b1e27;--tx:#e8eaf0;--mut:#9aa3b2;--bd:#2c3140;--ac:#8ea2ff;--acs:#262c4a;--ok:#4ade80;--bad:#f87171}}
+:root[data-theme=dark]{--bg:#12141a;--card:#1b1e27;--tx:#e8eaf0;--mut:#9aa3b2;--bd:#2c3140;--ac:#8ea2ff;--acs:#262c4a;--ok:#4ade80;--bad:#f87171}
+*{box-sizing:border-box}html{scroll-padding-top:env(safe-area-inset-top,0px)}
+body{margin:0;background:var(--bg);color:var(--tx);font:15px/1.5 system-ui,-apple-system,"Segoe UI",sans-serif}
+header{display:flex;gap:12px;align-items:center;padding:12px 18px;background:var(--card);border-bottom:1px solid var(--bd);flex-wrap:wrap}
+h1{font-size:18px;margin:0}.sp{flex:1}
+button{font:inherit;border:1px solid var(--bd);background:var(--card);color:var(--tx);padding:7px 12px;border-radius:8px;cursor:pointer}
+button.p{background:var(--ac);color:#fff;border-color:var(--ac)}button:disabled{opacity:.5}
+main{display:grid;grid-template-columns:230px minmax(0,1fr) 380px;gap:14px;padding:14px;max-width:1500px;margin:0 auto}
+@media(max-width:1000px){main{grid-template-columns:1fr}}
+.card{background:var(--card);border:1px solid var(--bd);border-radius:12px;padding:14px;min-width:0}
+h2{font-size:13px;text-transform:uppercase;letter-spacing:.06em;color:var(--mut);margin:0 0 10px}
+.thumb{border:1px solid var(--bd);border-radius:8px;padding:6px;margin-bottom:8px;cursor:pointer}
+.thumb:hover,.thumb.on{border-color:var(--ac)}.thumb svg{width:100%;height:auto;display:block;background:#fff;border-radius:4px}
+.thumb small{display:block;color:var(--mut);margin-top:4px;word-break:break-word}
+.tag{display:inline-block;font-size:11px;padding:1px 7px;border-radius:99px;background:var(--acs);color:var(--ac);margin-right:4px}
+#chat{height:calc(100vh - 360px);min-height:300px;overflow-y:auto;display:flex;flex-direction:column;gap:12px}
+.msg{padding:10px 12px;border:1px solid var(--bd);border-radius:10px;overflow-wrap:anywhere}.msg.u{background:var(--acs);align-self:flex-end;border-color:transparent}
+.msg h4{margin:10px 0 4px;font-size:13px;color:var(--mut)}
+.cite{border-color:var(--ac);color:var(--ac);padding:3px 8px;margin:3px 4px 0 0;font-size:12.5px;text-align:left}
+.ok{color:var(--ok)}.err{color:var(--bad)}
+.q{font-size:13px;color:var(--mut);border-left:3px solid var(--bd);padding-left:8px;margin:4px 0}
+.chips button{font-size:12.5px;margin:6px 6px 0 0;padding:4px 9px;text-align:left}
+.ask{display:flex;gap:8px;margin-top:10px}.ask input{flex:1;min-width:0;font:inherit;padding:9px 11px;border-radius:8px;border:1px solid var(--bd);background:var(--bg);color:var(--tx)}
+table.r{border-collapse:collapse;font-size:12.5px;width:100%}table.r td,table.r th{border:1px solid var(--bd);padding:3px 6px;text-align:left}
+#evb svg{width:100%;height:auto;border:1px solid var(--bd);border-radius:8px;background:#fff;margin-top:8px}
+.scroll{overflow-x:auto}.badge{font-size:12px;padding:2px 8px;border-radius:6px;background:var(--acs)}
+</style>
+</head>
+<body>
+<header><h1>📄 DocIntel Demo</h1><span style="color:var(--mut)">5 built-in pages: text · table · chart · scan · memo</span><span class="sp"></span><span id="mode" class="badge"></span><button id="th">🌓</button></header>
+<main>
+<section class="card"><h2>Sample documents</h2><div id="lib"></div></section>
+<section class="card"><h2>Ask the documents</h2>
+<div id="chat"><div class="msg">Pick an example question or type your own. Each answer lists the document, page and section it came from, and every citation is checked against the page before it is shown. Questions the documents cannot answer are refused.</div></div>
+<div class="chips" id="chips"></div>
+<div class="ask"><input id="q" placeholder="Ask anything about the sample documents"><button class="p" id="go">Ask</button></div></section>
+<section class="card"><h2>Evidence</h2><div id="evb" style="color:var(--mut)">Click a document page or a source to view it.</div></section>
+</main>
+<script>
+const $=s=>document.querySelector(s),esc=s=>String(s??"").replace(/[&<>"]/g,c=>({"&":"&amp;","<":"&lt;",">":"&gt;",'"':"&quot;"}[c]));
+$("#th").onclick=()=>{const r=document.documentElement;const d=r.dataset.theme?r.dataset.theme==="dark":matchMedia("(prefers-color-scheme:dark)").matches;r.dataset.theme=d?"light":"dark"};
+
+/* ---------- build sample pages as SVG ---------- */
+const T=(x,y,s,z=14,a="")=>`<text x="${x}" y="${y}" font-size="${z}" font-family="Georgia,serif" fill="#111" ${a}>${esc(s)}</text>`;
+const wrapSvg=(inner,id)=>`<svg viewBox="0 0 600 780" xmlns="http://www.w3.org/2000/svg"><rect width="600" height="780" fill="#fff"/>${inner}</svg>`;
+const para=(lines,y)=>lines.map((l,i)=>T(40,y+i*24,l,15)).join("");
+const A1=["Efficiency improved steadily through 2025. Between Q2 and Q4 the","plant raised output per labor hour and cut scrap. Management","attributes the gain to three initiatives: a SMED quick-changeover","programme launched in Q3, predictive-maintenance sensors on Line 3,","and consolidation of raw-material suppliers. Table 1 gives quarterly","KPIs; Figure 1 breaks down downtime hours by cause."];
+const rows=[["Metric","Q1","Q2","Q3","Q4"],["Units per labor hour","41.2","43.5","47.1","52.8"],["OEE (%)","71","74","78","83"],["Downtime (hours)","126","118","92","61"],["Scrap rate (%)","3.9","3.6","2.8","2.1"]];
+const colX=[40,240,325,410,495],colW=[200,85,85,85,65];
+const tbl=rows.map((r,i)=>r.map((v,j)=>`<rect x="${colX[j]}" y="${130+i*40}" width="${colW[j]}" height="40" fill="${i?"none":"#eef1fa"}" stroke="#777"/>`+T(colX[j]+8,155+i*40,v,14,i?"":'font-weight="bold"')).join("")).join("");
+const cats=["Changeovers","Equipment failure","Material shortage"],q2=[48,41,29],q4=[22,19,20];
+let ch='<line x1="70" y1="560" x2="560" y2="560" stroke="#333"/><line x1="70" y1="150" x2="70" y2="560" stroke="#333"/>';
+for(let g=0;g<=50;g+=10)ch+=`<line x1="70" y1="${560-g*8}" x2="560" y2="${560-g*8}" stroke="#ddd"/>`+T(40,564-g*8,g,11);
+cats.forEach((c,i)=>{const bx=100+i*160;ch+=`<rect x="${bx}" y="${560-q2[i]*8}" width="50" height="${q2[i]*8}" fill="#3b5bdb"/><rect x="${bx+55}" y="${560-q4[i]*8}" width="50" height="${q4[i]*8}" fill="#f08c00"/>`+T(bx+14,553-q2[i]*8,q2[i],12)+T(bx+69,553-q4[i]*8,q4[i],12)+T(bx-6,585,c,12)});
+ch+=`<rect x="400" y="110" width="12" height="12" fill="#3b5bdb"/>`+T(417,121,"Q2",12)+`<rect x="450" y="110" width="12" height="12" fill="#f08c00"/>`+T(467,121,"Q4",12)+T(40,135,"Downtime hours",12);
+const scanL=["MAINTENANCE AUDIT - LINE 3","Date: 14 Nov 2025  Auditor: R. Iyer","","Predictive sensors installed: 12","Installation cost: $48,000","Unplanned failures avoided Q3-Q4: 14","Estimated saving per failure","avoided: $9,500"];
+const scan=`<rect width="600" height="780" fill="#efe6cf"/><g transform="rotate(-1.3 300 390)" font-family="Courier New,monospace" font-size="17" fill="#2a2a2a">${scanL.map((l,i)=>`<text x="40" y="${100+i*38}">${esc(l)}</text>`).join("")}</g><filter id="nz"><feTurbulence baseFrequency=".85" numOctaves="2" seed="4"/><feColorMatrix values="0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 .5 -.1"/></filter><rect width="600" height="780" filter="url(#nz)"/><ellipse cx="480" cy="640" rx="70" ry="38" fill="#00000010"/>`;
+const memoL=["Supplier Consolidation Memo - Procurement, Sep 2025","","We reduced active raw-material suppliers from 11 to 4","in Q3. Average delivery lead time fell from 14 days to","9 days, and material-shortage stoppages declined as a","result. Annual purchasing cost fell 3.2%."];
+const DOCS=[
+ {name:"Plant_Annual_Report_2025.pdf",pages:[
+  {n:1,kind:["text"],svg:wrapSvg(T(40,70,"Annual Operations Review 2025",24)+T(40,120,"1. Production efficiency overview",17)+para(A1,160)),text:"Annual Operations Review 2025 1. Production efficiency overview "+A1.join(" "),vis:""},
+  {n:2,kind:["table"],svg:wrapSvg(T(40,70,"2. Quarterly KPIs (Table 1)",20)+tbl),text:"2. Quarterly KPIs (Table 1) "+rows.map(r=>r.join(" | ")).join(" ; "),vis:""},
+  {n:3,kind:["chart"],svg:wrapSvg(T(40,70,"3. Downtime by cause (Figure 1)",20)+ch),text:"3. Downtime by cause (Figure 1)",vis:"Grouped bar chart of downtime hours by cause. Changeovers Q2 48 Q4 22. Equipment failure Q2 41 Q4 19. Material shortage Q2 29 Q4 20."}]},
+ {name:"Maintenance_Audit_Scan.pdf",pages:[{n:1,kind:["scan"],svg:wrapSvg(scan),text:"",vis:"Maintenance audit Line 3. Predictive sensors installed: 12. Installation cost: $48,000. Unplanned failures avoided Q3-Q4: 14. Estimated saving per failure avoided: $9,500."}]},
+ {name:"Supplier_Memo_Sep2025.pdf",pages:[{n:1,kind:["text"],svg:wrapSvg(memoL.map((l,i)=>T(40,80+i*30,l,i?15:17,i?"":'font-weight="bold"')).join("")),text:memoL.join(" "),vis:""}]}];
+const PAGES=DOCS.flatMap(d=>d.pages.map(p=>({...p,doc:d.name,content:(p.text+" "+p.vis).trim(),visual:p.kind[0]!=="text"})));
+const getPage=(d,n)=>PAGES.find(p=>p.doc===d&&p.n===+n);
+
+/* ---------- library UI ---------- */
+$("#lib").innerHTML=PAGES.map((p,i)=>`<div class="thumb" data-i="${i}">${p.svg.replace('id="nz"','id="nz'+i+'"').replace('url(#nz)','url(#nz'+i+')')}<small><b>${esc(p.doc)}</b> p${p.n} ${p.kind.map(k=>`<span class="tag">${k}</span>`).join("")}${p.visual?'<span class="tag">read as image</span>':""}</small></div>`).join("");
+document.querySelectorAll(".thumb").forEach(t=>t.onclick=()=>show(PAGES[t.dataset.i]));
+function show(p,quote){$("#evb").innerHTML=`<b>${esc(p.doc)}</b> · page ${p.n} ${p.kind.map(k=>`<span class="tag">${k}</span>`).join("")}${quote?`<div class="q">“${esc(quote)}”</div>`:""}${p.svg.replace('id="nz"','id="nze"').replace('url(#nz)','url(#nze)')}`}
+
+/* ---------- hybrid retrieval: BM25 (exact words) + concept vectors (meaning) fused with RRF ---------- */
+const CONCEPTS=[["efficiency","productivity","output","throughput","unit","units","yield","performance"],["downtime","stoppage","outage","idle","halt","stop"],["scrap","waste","defect","reject","rework"],["cost","price","spend","expense","investment","outlay","saving","payback","return","roi"],["sensor","predictive","monitoring","maintenance","audit","inspection"],["supplier","vendor","procurement","purchasing","sourcing"],["changeover","setup","smed","switch"],["failure","breakdown","fault","malfunction"],["lead","delivery","shipping","days"],["shortage","stockout","material","materials"],["worker","labor","labour","staff","employee","headcount"],["improve","increase","rise","gain","growth","raise"],["reduce","fall","decline","drop","cut","decrease"]];
+const W2C={};CONCEPTS.forEach((c,i)=>c.forEach(w=>W2C[w]=i));
+const stem=w=>w.replace(/(ing|ed|es|s)$/,"");const tok=s=>(s.toLowerCase().match(/[a-z0-9.%$,]+/g)||[]).map(w=>w.replace(/[.,]$/,"")).filter(w=>w.length>1&&!"the of and to in is a for on at by an be as with from what how which are was were did does between show me".split(" ").includes(w));
+const toks=PAGES.map(p=>tok(p.content));const avgLen=toks.reduce((a,t)=>a+t.length,0)/toks.length;
+const df={};toks.forEach(t=>new Set(t.map(stem)).forEach(w=>df[w]=(df[w]||0)+1));
+function bm25(q){const qt=tok(q).map(stem);return toks.map(t=>{const ts=t.map(stem);let s=0;qt.forEach(w=>{const f=ts.filter(x=>x===w).length;if(!f)return;const idf=Math.log(1+(PAGES.length-(df[w]||0)+.5)/((df[w]||0)+.5));s+=idf*f*2.2/(f+1.2*(.25+.75*ts.length/avgLen))});return s})}
+const cvec=ts=>{const v=new Array(CONCEPTS.length).fill(0);ts.forEach(w=>{const c=W2C[w]??W2C[stem(w)];if(c!==undefined)v[c]++});return v};
+const cos=(a,b)=>{const d=a.reduce((s,x,i)=>s+x*b[i],0),n=Math.hypot(...a)*Math.hypot(...b);return n?d/n:0};
+const pv=toks.map(cvec);
+function retrieve(q,k=4){const b=bm25(q),qv=cvec(tok(q)),s=pv.map(v=>cos(qv,v));
+ const rb=b.map((x,i)=>[x,i]).sort((x,y)=>y[0]-x[0]).map(x=>x[1]),rs=s.map((x,i)=>[x,i]).sort((x,y)=>y[0]-x[0]).map(x=>x[1]);
+ return PAGES.map((p,i)=>{const r1=rb.indexOf(i),r2=rs.indexOf(i);return{p,bm:b[i],sem:s[i],rrf:(b[i]>0?1/(60+r1):0)+(s[i]>0?1/(60+r2):0)}}).sort((a,b)=>b.rrf-a.rrf).slice(0,k).filter(x=>x.rrf>0)}
+
+/* ---------- curated examples ---------- */
+const EX=[
+{q:"Compare production efficiency between Q2 and Q4, identify the three biggest reasons for the change, and show me the proof",a:"Efficiency rose sharply from Q2 to Q4: units per labor hour went from 43.5 to 52.8 ({{calc}} increase), OEE from 74% to 83%, downtime from 118 to 61 hours, and scrap from 3.6% to 2.1%.",calc:["(52.8-43.5)/43.5*100","%"],reasons:["Faster changeovers (SMED, launched in Q3): changeover downtime fell from 48 to 22 hours, the largest single driver (chart).","Predictive maintenance on Line 3: equipment-failure downtime fell from 41 to 19 hours; the audit confirms 12 sensors and 14 failures avoided.","Supplier consolidation: material-shortage downtime fell from 29 to 20 hours as delivery lead time dropped from 14 to 9 days."],
+ cites:[["Plant_Annual_Report_2025.pdf",2,"Table 1","table","Units per labor hour | 41.2 | 43.5 | 47.1 | 52.8"],["Plant_Annual_Report_2025.pdf",3,"Figure 1","chart","Changeovers Q2 48 Q4 22. Equipment failure Q2 41 Q4 19. Material shortage Q2 29 Q4 20"],["Plant_Annual_Report_2025.pdf",1,"1. Production efficiency overview","text","SMED quick-changeover programme launched in Q3"],["Maintenance_Audit_Scan.pdf",1,"Audit findings","scan","Predictive sensors installed: 12 ... failures avoided: 14"],["Supplier_Memo_Sep2025.pdf",1,"Memo body","text","delivery lead time fell from 14 days to 9 days"]]},
+{q:"What is the return on the Line 3 sensor investment?",a:"The sensors cost $48,000 and avoided 14 failures worth an estimated $9,500 each ($133,000 in total), an ROI of {{calc}}.",calc:["(14*9500-48000)/48000*100","%"],cites:[["Maintenance_Audit_Scan.pdf",1,"Audit findings","scan","Installation cost: $48,000 ... failures avoided Q3-Q4: 14 ... $9,500"]]},
+{q:"By how much did changeover downtime fall between Q2 and Q4 in the chart?",a:"Changeover downtime fell from 48 hours in Q2 to 22 hours in Q4, a {{calc}} reduction.",calc:["(48-22)/48*100","%"],cites:[["Plant_Annual_Report_2025.pdf",3,"Figure 1","chart","Changeovers Q2 48 Q4 22"]]},
+{q:"How did the supplier changes affect material shortages?",a:"Active suppliers were cut from 11 to 4 and lead time from 14 to 9 days (memo). The chart shows material-shortage downtime falling from 29 to 20 hours, a {{calc}} reduction.",calc:["(29-20)/29*100","%"],cites:[["Supplier_Memo_Sep2025.pdf",1,"Memo body","text","suppliers from 11 to 4 ... lead time fell from 14 days to 9 days"],["Plant_Annual_Report_2025.pdf",3,"Figure 1","chart","Material shortage Q2 29 Q4 20"]]},
+{q:"What was the Q4 headcount? (not in the documents)",a:"",cites:[]}];
+$("#chips").innerHTML=EX.map((e,i)=>`<button data-i="${i}">${esc(e.q)}</button>`).join("");
+document.querySelectorAll("#chips button").forEach(b=>b.onclick=()=>run(EX[b.dataset.i].q,EX[b.dataset.i]));
+
+/* ---------- verification, math ---------- */
+const nums=s=>(s.match(/\d+(?:[.,]\d+)*/g)||[]).map(x=>x.replace(/,/g,""));
+function supports(c){const p=getPage(c.doc,c.page);if(!p)return false;const pn=new Set(nums(p.content));const n=nums(c.quote);return n.length>0?n.every(x=>pn.has(x)):tok(c.quote).filter(w=>w.length>3).every(w=>p.content.toLowerCase().includes(w))}
+function safeCalc(e){if(!e||!/^[0-9+\-*/().\s]+$/.test(e))return null;try{const v=Function('"use strict";return ('+e+')')();return Number.isFinite(v)?Math.round(v*100)/100:null}catch(_){return null}}
+const norm=c=>Array.isArray(c)?{doc:c[0],page:c[1],section:c[2],modality:c[3],quote:c[4]}:c;
+
+/* ---------- answering ---------- */
+let sampleFn=null,busy=false;
+(async()=>{try{if(window.claude){sampleFn=await claude.use("sample")}}catch(e){}$("#mode").textContent=sampleFn?"curated examples + live AI for new questions":"curated examples + extractive search"})();
+function addMsg(h,u){const m=document.createElement("div");m.className="msg"+(u?" u":"");m.innerHTML=h;$("#chat").append(m);$("#chat").scrollTop=1e9;return m}
+function matchExample(q){const qt=new Set(tok(q).map(stem));let best=null,bs=0;EX.slice(0,4).forEach(e=>{const t=tok(e.q).map(stem);const s=t.filter(w=>qt.has(w)).length/Math.max(t.length,qt.size,1);if(s>bs){bs=s;best=e}});return bs>=.5?best:null}
+async function run(q,ex){if(busy)return;busy=true;$("#go").disabled=true;addMsg(esc(q),true);const m=addMsg("Retrieving pages (BM25 + concept search), reading, verifying…");
+ const hits=retrieve(q);let res=null,source="";
+ try{
+  if(ex||(ex=matchExample(q))){res={answer:ex.a,calc:ex.calc&&{expression:ex.calc[0],suffix:ex.calc[1]},reasons:ex.reasons,citations:ex.cites.map(norm)};source="curated example"}
+  else if(sampleFn&&hits.length){const ctx=hits.map(h=>`### ${h.p.doc} page ${h.p.n} (${h.p.kind.join(",")})\n${h.p.text}\n[Vision transcript of the page image]: ${h.p.vis||"n/a"}`).join("\n\n");
+   const r=await sampleFn(`Answer ONLY from these pages. Return ONLY JSON: {"answer":"use {{calc}} for a computed number","calc":{"expression":"arithmetic or null"},"reasons":[],"citations":[{"doc":"exact file name","page":1,"section":"","modality":"text|table|chart|scan","quote":"exact numbers or words from the page"}]}. Every claim needs a citation; if the pages do not contain the answer return empty citations.\n\nQUESTION: ${q}\n\nPAGES:\n${ctx}`,{cache:false});
+   const t=r.text.replace(/```json|```/g,"");res=JSON.parse(t.slice(t.indexOf("{"),t.lastIndexOf("}")+1));source="live AI";}
+  else if(hits.length&&hits[0].bm>0){const qt=new Set(tok(q).map(stem));const lines=[];hits.forEach(h=>(h.p.content.match(/[^.;]+[.;]?/g)||[]).forEach(l=>{const s=tok(l).filter(w=>qt.has(stem(w))).length;if(s>1)lines.push({s,l:l.trim(),p:h.p})}));lines.sort((a,b)=>b.s-a.s);const top=lines.slice(0,2);
+   if(top.length){res={answer:top.map(x=>x.l).join(" … "),citations:top.map(x=>({doc:x.p.doc,page:x.p.n,section:"matched text",modality:x.p.kind[0],quote:x.l.slice(0,100)}))};source="extractive"}}
+ }catch(e){res=null}
+ m.innerHTML=render(res,hits,source);bind(m,res);busy=false;$("#go").disabled=false}
+let LAST={};
+function render(res,hits,source){
+ const rt=`<h4>Retrieval (hybrid, fused by reciprocal rank)</h4><div class="scroll"><table class="r"><tr><th>Page</th><th>Keyword (BM25)</th><th>Meaning (concepts)</th><th>Fused</th></tr>${hits.map(h=>`<tr><td>${esc(h.p.doc.replace(/\.pdf$/,""))} p${h.p.n}</td><td>${h.bm.toFixed(2)}</td><td>${h.sem.toFixed(2)}</td><td>${h.rrf.toFixed(4)}</td></tr>`).join("")}</table></div>`;
+ const cites=res?(res.citations||[]).map(norm).filter(supports):[];
+ if(!res||!cites.length)return `<b>No verifiable source found, so no answer is given.</b><div class="q">The retrieved pages do not support an answer (no source = no answer).</div>`+rt;
+ const cv=res.calc?safeCalc(res.calc.expression):null;let a=esc(res.answer);const sfx=(res.calc&&res.calc.suffix)||"";
+ a=a.replace(/\{\{calc\}\}/g,cv===null?"n/a":`<b>${cv}${sfx}</b>`);LAST=cites;
+ return `<div>${a} <span class="badge">${esc(source)}</span></div>`+(cv!==null&&res.calc?`<div class="q">Calculated by code: ${esc(res.calc.expression)} = ${cv}</div>`:"")+
+  (res.reasons&&res.reasons.length?`<h4>Key reasons</h4><ol>${res.reasons.map(x=>`<li>${esc(x)}</li>`).join("")}</ol>`:"")+
+  `<h4>Sources (each checked against the page)</h4>`+cites.map((c,i)=>`<button class="cite" data-i="${i}"><span class="ok">✓</span> ${esc(c.doc)} · p${c.page} · ${esc(c.section||"")} · ${esc(c.modality||"")}</button>`).join("")+rt}
+function bind(m){const c=LAST;m.querySelectorAll(".cite").forEach(b=>b.onclick=()=>{const x=c[b.dataset.i];show(getPage(x.doc,x.page),x.quote)});if(c&&c[0]&&m.querySelector(".cite"))show(getPage(c[0].doc,c[0].page),c[0].quote)}
+$("#go").onclick=()=>{const q=$("#q").value.trim();if(q){$("#q").value="";run(q)}};$("#q").onkeydown=e=>{if(e.key==="Enter")$("#go").click()};
+</script>
+</body>
+</html>
